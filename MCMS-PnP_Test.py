@@ -150,10 +150,17 @@ def run(mat_file):
     if NoMuilt:     # Channel
         nChannel=1  # Single 
     x = At(torch.div(y[:,:,1],mask_sum_A[:,:,1]), mask_A[:,:,:,1])   # dimension - [H,W,F]
+    v = x
+    u = torch.zeros_like(x, dtype=torch.float32, device=device)
+    
+    u_list = []
+    for iC in range(nChannel):
+        u_list.append(u)
+        
     y1 = torch.zeros_like(y, dtype=torch.float32, device=device)
     
-    x_old = x
-    delta_x_old = 1
+    v_old = v
+    delta_v_old = 1
     sigma = 50.
     i_old = 0
     
@@ -169,14 +176,16 @@ def run(mat_file):
         ffdnet_list_list = []
         
         x_list = []
+        v_list = []
         
         
         for iC in range(nChannel):
             yy = y[:,:,iC]
             mask = mask_A[:,:,:,iC]
             mask_sum = mask_sum_A[:,:,iC]
+            u = u_list[iC]
             
-            yb = A(x, mask)
+            yb = A(v + u, mask)
 
             if acc:
                 y1 = y1 + (yy - yb)
@@ -184,14 +193,15 @@ def run(mat_file):
             else:
                 y1 = yy - yb
                 temp = y1 / mask_sum
-            x = x + 1 * At(temp, mask)
+            x = v + 1 * At(temp, mask)
+            x_list.append(x)
 
             if i < 10:
-                #x = ffdnet_denosing(x, 30./255, netvnorm_init)
-                x = TV_denoising3d(x, 10., 7).clamp(0, 1)
+                #v = ffdnet_denosing(x+u, 50./255, netvnorm_init)
+                v = TV_denoising3d(x+u, 1., 7).clamp(0, 1)
                 time.sleep(0.05)
                 #x_list.append(x.unsqueeze(3))
-                x_list.append(x)
+                v_list.append(v)
             else:           
                 if NoScale:
                     hypara_list = [max(sigma, min_sigma/1)]
@@ -202,11 +212,11 @@ def run(mat_file):
                 tv_num = ffdnet_num
             
                 if denoiser=='ffdnet':
-                    ffdnet_list = [ffdnet_denosing(x, level/255., netvnorm_init).clamp(0, 1) for level in hypara_list]
+                    ffdnet_list = [ffdnet_denosing(x+u, level/255., netvnorm_init).clamp(0, 1) for level in hypara_list]
                 if denoiser=='fastdvd':
-                    ffdnet_list = [fastdvdnet_denosing(x, level/255., netvnorm_init).clamp(0, 1) for level in hypara_list]
+                    ffdnet_list = [fastdvdnet_denosing(x+u, level/255., netvnorm_init).clamp(0, 1) for level in hypara_list]
                 if denoiser=='drunet':
-                    ffdnet_list = [DRUNet_Denoise(x, level/255./2, netvnorm_init).clamp(0, 1) for level in hypara_list]
+                    ffdnet_list = [DRUNet_Denoise(x+u, level/255., netvnorm_init).clamp(0, 1) for level in hypara_list]
                 
                 ffdnet_list_list.append(ffdnet_list)
                 
@@ -217,19 +227,19 @@ def run(mat_file):
         
                 
         if  i < 10: 
-            x_add = 0
+            v_add = 0
             for idx in range(nChannel):
-                x_add += x_list[idx]
-            x = x_add/nChannel      
+                v_add += v_list[idx]
+            v = v_add/nChannel      
             continue # 跳出             
         
         if NoMuilt:
             ffdnet_list = ffdnet_list_list[0] # Channel 1
             
-            x_add = 0
+            v_add = 0
             for idx in range(ffdnet_num):
-                x_add += ffdnet_list[idx]
-            x = x_add/ffdnet_num
+                v_add += ffdnet_list[idx]
+            v = v_add/ffdnet_num
                     
             # x = torch.cat(x_list,3)
             # x = torch.sum(x,3)/nChannel
@@ -242,12 +252,12 @@ def run(mat_file):
             tv_mat = ffdnet_mat_list[1].T
         
             if NoWeight or NoScale:
-                x_add = 0
+                v_add = 0
                 for ndx in range(nChannel):
                     tv_list = ffdnet_list_list[ndx]
                     for idx in range(ffdnet_num):
-                        x_add += tv_list[idx]
-                x = x_add/ffdnet_num/nChannel
+                        v_add += tv_list[idx]
+                v = v_add/ffdnet_num/nChannel
             else:
                 w_1, w_2 = Alternate_solution(ffdnet_mat[image_n//2:-1:image_m,:], 
                                       tv_mat[image_n//2:-1:image_m,:], iter = 3)
@@ -256,35 +266,39 @@ def run(mat_file):
                 #if i%10==0:
                 #    print('\n')
                 #    print(list(map('{:.4f}'.format,w_2)))
-                x_ffdnet, x_tv = 0, 0
+                v_ffdnet, v_tv = 0, 0
                 for idx in range(ffdnet_num):
-                    x_ffdnet += w_1[idx] * ffdnet_list[idx]
+                    v_ffdnet += w_1[idx] * ffdnet_list[idx]
                 for idx in range(tv_num):
-                    x_tv += w_2[idx] * tv_list[idx]
-                x = 0.5 * (x_ffdnet + x_tv)
+                    v_tv += w_2[idx] * tv_list[idx]
+                v = 0.5 * (v_ffdnet + v_tv)
         
         
-        delta_x = cost(x, x_old)
-        x_old = x
+        delta_v = cost(v, v_old)
+        v_old = v
         
 
-        if NoScale and delta_x > delta_x_old*0.9 or i-i_old > 10:
+        if NoScale and delta_v > delta_v_old*0.9 or i-i_old > 10:
             sigma = sigma*0.95
             i_old = i
 
-        if delta_x < 2e-8:
+        if delta_v < 2e-18:
             break # Range
-        delta_x_old = delta_x
+        delta_v_old = delta_v
+        
+        for iC in range(nChannel):
+            #u_list[iC] = u_list[iC] - v + x_list[iC]
+            u_list[iC] = 0
 
-    x.clamp_(0, 1)
+    v.clamp_(0, 1)
     im_orig.clamp_(0, 1)
     # fps = 10
     # save_ani(image_seq, filename='HSI.mp4', fps=fps)
-    psnr_ = psnr(x, im_orig)
+    psnr_ = psnr(v, im_orig)
     #psnr_ = [psnr(x[..., kv], im_orig[..., kv]) for kv in range(image_c)]
-    ssim_ = [ssim(x[..., kv], im_orig[..., kv]) for kv in range(image_c)]
+    ssim_ = [ssim(v[..., kv], im_orig[..., kv]) for kv in range(image_c)]
     
-    return np.mean(psnr_), np.mean(ssim_), x.cpu().numpy(), im_orig.data.cpu().numpy()
+    return np.mean(psnr_), np.mean(ssim_), v.cpu().numpy(), im_orig.data.cpu().numpy()
 
 def getExtfileList(filepath, extensionName):
     filelists = []
@@ -301,7 +315,7 @@ file_list = getExtfileList(folder, 'mat')
 file_list = [file_list[0]]
 # In[ ]: Main
 NoMuilt = False#True#
-NoScale = False#True#
+NoScale = True#False#
 NoWeight = False#True#
 
 denoiser = 'ffdnet' #{ffdnet, drunet, fastdvd}
