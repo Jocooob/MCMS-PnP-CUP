@@ -160,7 +160,7 @@ def run(mat_file):
     i_old = 0
     
     try:
-        min_sigma = float(re.findall(r'\d+', mat_file)[-1])   # Find the number of Sigma
+        min_sigma = float(re.findall(r'\d+', mat_file)[-1])   # Find the level of Noise
     except:
         min_sigma = 5
     
@@ -204,7 +204,7 @@ def run(mat_file):
                 if NoScale:
                     hypara_list = [max(sigma, min_sigma/1)]
                 else: 
-                    hypara_list = [20.,15.,10.,5.,3.,1.]
+                    hypara_list = [20.,10.,5.,3.,1.]
                 
                 ffdnet_num = len(hypara_list)
                 tv_num = ffdnet_num
@@ -218,8 +218,7 @@ def run(mat_file):
                 
                 ffdnet_list_list.append(ffdnet_list)
                 
-                ffdnet_mat = np.stack(  # 将多个array拼接在一起,形成一个更大的更高维度的array
-                                      [x_ele.transpose(1,0).cpu().numpy().reshape(-1).astype(np.float64) for x_ele in ffdnet_list],
+                ffdnet_mat = np.stack([x_ele.transpose(1,0).cpu().numpy().reshape(-1).astype(np.float64) for x_ele in ffdnet_list],
                                       axis=0)
                 ffdnet_mat_list.append(ffdnet_mat)
         
@@ -229,7 +228,7 @@ def run(mat_file):
             for idx in range(nChannel):
                 v_add += v_list[idx]
             v = v_add/nChannel      
-            continue # 跳出             
+            continue         
         
         if NoMuilt:
             ffdnet_list = ffdnet_list_list[0] # Channel 1
@@ -239,9 +238,6 @@ def run(mat_file):
                 v_add += ffdnet_list[idx]
             v = v_add/ffdnet_num
                     
-            # x = torch.cat(x_list,3)
-            # x = torch.sum(x,3)/nChannel
-            # continue
         else:
 
             ffdnet_list = ffdnet_list_list[0] # Channel 1
@@ -261,9 +257,7 @@ def run(mat_file):
                                       tv_mat[image_n//2:-1:image_m,:], iter = 3)
                 w_list.append(np.round(w_1,4))
                 w_list2.append(np.round(w_2,4))
-                #if i%10==0:
-                #    print('\n')
-                #    print(list(map('{:.4f}'.format,w_2)))
+
                 v_ffdnet, v_tv = 0, 0
                 for idx in range(ffdnet_num):
                     v_ffdnet += w_1[idx] * ffdnet_list[idx]
@@ -280,7 +274,7 @@ def run(mat_file):
             sigma = sigma*0.95
             i_old = i
 
-        if delta_v < 2e-18:
+        if delta_v < 2e-8:
             break # Range
         delta_v_old = delta_v
         
@@ -290,8 +284,7 @@ def run(mat_file):
 
     v.clamp_(0, 1)
     im_orig.clamp_(0, 1)
-    # fps = 10
-    # save_ani(image_seq, filename='HSI.mp4', fps=fps)
+
     psnr_ = psnr(v, im_orig)
     #psnr_ = [psnr(x[..., kv], im_orig[..., kv]) for kv in range(image_c)]
     ssim_ = [ssim(v[..., kv], im_orig[..., kv]) for kv in range(image_c)]
