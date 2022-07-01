@@ -130,12 +130,7 @@ def run(mat_file):
     mask_A = torch.from_numpy(mat_data['mask'].astype(np.float32)).to(device)
     y = mat_data['meas'] / 1
     y = torch.from_numpy(y).type(torch.float32).to(device)
-    # data missing and noise
-    # y = y + level * torch.randn_like(y)
-    # index_rand = np.random.rand(*list(y.shape))
-    # index_y = np.argwhere(index_rand < 0.05)
-    # y[index_y[:,0], index_y[:,1]] = 0
-    
+ 
     mask_sum_A = torch.sum(mask_A**2, dim=2, keepdim=False)
     mask_sum_A[mask_sum_A == 0] = 1
     
@@ -164,7 +159,10 @@ def run(mat_file):
     sigma = 50.
     i_old = 0
     
-    min_sigma = float(re.findall(r'\d+', mat_file)[-1])   # Find the number of Sigma
+    try:
+        min_sigma = float(re.findall(r'\d+', mat_file)[-1])   # Find the number of Sigma
+    except:
+        min_sigma = 5
     
     if min_sigma < 5:
         min_sigma = 5
@@ -315,7 +313,7 @@ file_list = getExtfileList(folder, 'mat')
 file_list = [file_list[0]]
 # In[ ]: Main
 NoMuilt = False#True#
-NoScale = True#False#
+NoScale = False#True#
 NoWeight = False#True#
 
 denoiser = 'ffdnet' #{ffdnet, drunet, fastdvd}
